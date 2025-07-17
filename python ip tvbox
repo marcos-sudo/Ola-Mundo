@@ -1,0 +1,131 @@
+import time
+from ppadb.client import Client as AdbClient
+import threading
+import logging
+
+# Configuração inicial
+TV_BOX_IP = "192.168.0.100"  # Substitua pelo IP da sua TV Box
+TV_BOX_PORT = 5555
+CHECK_INTERVAL = 10  # Verificar a cada 10 segundos
+
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(message)s',
+    handlers=[logging.FileHandler("tvbox_monitor.log"), logging.StreamHandler()]
+)
+
+class TVBoxController:
+    def __init__(self):
+        self.client = AdbClient(host="127.0.0.1", port=5037)
+        self.device = None
+        self.last_state = None
+    
+    def connect(self):
+        try:
+            self.client.remote_connect(TV_BOX_IP, TV_BOX_PORT)
+            devices = self.client.devices()
+            if devices:
+                self.device = devices[0]
+                return True
+            return False
+        except Exception as e:
+            logging.error(f"Conexão falhou: {str(e)}")
+            return False
+    
+    def get_power_state(self):
+        """Obtém o estado de energia da TV Box"""
+        try:
+            if not self.device:
+                if not self.connect():
+                    return "disconnected"
+            
+            # Verifica se a tela está ligada
+            screen_state = self.device.shell("dumpsys power | grep 'Display Power'")
+            if 'ON' in screen_state:
+                return "on"
+            else:
+                return "standby"
+        except:
+            return "disconnected"
+    
+    def power_on(self):
+        """Liga a TV Box"""
+        try:
+            self.device.shell("input keyevent KEYCODE_POWER")
+            logging.info("Comando LIGAR enviado")
+            return True
+        except Exception as e:
+            logging.error(f"Falha ao ligar: {str(e)}")
+            return False
+    
+    def power_off(self):
+        """Coloca a TV Box em standby"""
+        try:
+            self.device.shell("input keyevent KEYCODE_SLEEP")
+            logging.info("Comando DESLIGAR enviado")
+            return True
+        except Exception as e:
+            logging.error(f"Falha ao desligar: {str(e)}")
+            return False
+
+def monitor_tvbox(controller):
+    """Monitora o estado da TV Box continuamente"""
+    logging.info("Iniciando monitoramento da TV Box...")
+    
+    while True:
+        current_state = controller.get_power_state()
+        
+        if current_state != controller.last_state:
+            status_msg = {
+                "on": "TV Box LIGADA",
+                "standby": "TV Box em STANDBY",
+                "disconnected": "TV Box DESCONECTADA"
+            }.get(current_state, "Estado desconhecido")
+            
+            logging.info(f"Status alterado: {status_msg}")
+            controller.last_state = current_state
+        
+        time.sleep(CHECK_INTERVAL)
+
+def main():
+    controller = TVBoxController()
+    
+    # Iniciar thread de monitoramento
+    monitor_thread = threading.Thread(
+        target=monitor_tvbox, 
+        args=(controller,),
+        daemon=True
+    )
+    monitor_thread.start()
+    
+    # Interface de controle simples
+    while True:
+        print("\n--- Controle TV Box ---")
+        print("1. Ligar TV Box")
+        print("2. Desligar TV Box")
+        print("3. Verificar estado")
+        print("4. Sair")
+        
+        choice = input("Escolha: ")
+        
+        if choice == "1":
+            controller.power_on()
+        elif choice == "2":
+            controller.power_off()
+        elif choice == "3":
+            state = controller.get_power_state()
+            states = {
+                "on": "Ligada",
+                "standby": "Em standby",
+                "disconnected": "Desconectada"
+            }
+            print(f"Estado atual: {states.get(state, 'Desconhecido')}")
+        elif choice == "4":
+            logging.info("Saindo do sistema...")
+            break
+        else:
+            print("Opção inválida")
+
+if __name__ == "__main__":
+    main()
